@@ -1,11 +1,13 @@
-/*
- * Copyright (c) 2017 Intel Corporation
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #ifndef __CONFIG_H__
 #define __CONFIG_H__
+
+
+#define BROKER_ADDR 	"183.230.40.39"
+#define BROKER_PORT		(6002)
+
+#define MQTT_CLIENTID 	"5619109"
+#define MQTT_USERNAME	"85574"
+#define MQTT_PASSWORD	"password"
 
 #ifdef CONFIG_NET_APP_SETTINGS
 #ifdef CONFIG_NET_IPV6
@@ -37,19 +39,6 @@
 
 #define APP_CONNECT_TRIES	10
 
-#define APP_MAX_ITERATIONS	100
-
-#define MQTT_CLIENTID		"zephyr_publisher"
-
-/* Set the following to 1 to enable the Bluemix topic format */
-#define APP_BLUEMIX_TOPIC	0
-
-/* These are the parameters for the Bluemix topic format */
-#if APP_BLUEMIX_TOPIC
-#define BLUEMIX_DEVTYPE		"sensor"
-#define BLUEMIX_DEVID		"carbon"
-#define BLUEMIX_EVENT		"status"
-#define BLUEMIX_FORMAT		"json"
-#endif
+#define APP_MAX_ITERATIONS	10
 
 #endif

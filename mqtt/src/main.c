@@ -1,4 +1,5 @@
 #include <zephyr.h>
+#include <stdio.h>
 #include <net/mqtt.h>
 
 #include <net/net_context.h>
@@ -221,45 +222,23 @@ static void malformed_cb(struct mqtt_ctx *mqtt_ctx, u16_t pkt_type)
 	printk("[%s:%d] pkt_type: %u\n", __func__, __LINE__, pkt_type);
 }
 
-static char *get_mqtt_payload(enum mqtt_qos qos)
-{
-#if APP_BLUEMIX_TOPIC
-	static char payload[30];
-
-	snprintk(payload, sizeof(payload), "{d:{temperature:%d}}",
-		 (u8_t)sys_rand32_get());
-#else
-	static char payload[] = "DOORS:OPEN_QoSx";
-
-	payload[strlen(payload) - 1] = '0' + qos;
-#endif
-
-	return payload;
-}
-
-static char *get_mqtt_topic(void)
-{
-#if APP_BLUEMIX_TOPIC
-	return "iot-2/type/"BLUEMIX_DEVTYPE"/id/"BLUEMIX_DEVID
-	       "/evt/"BLUEMIX_EVENT"/fmt/"BLUEMIX_FORMAT;
-#else
-	return "sensors";
-#endif
-}
-
 static void prepare_mqtt_publish_msg(struct mqtt_publish_msg *pub_msg,
 				     enum mqtt_qos qos)
 {
-	/* MQTT message payload may be anything, we we use C strings */
-	pub_msg->msg = get_mqtt_payload(qos);
-	/* Payload's length */
-	pub_msg->msg_len = strlen(client_ctx.pub_msg.msg);
-	/* MQTT Quality of Service */
-	pub_msg->qos = qos;
-	/* Message's topic */
-	pub_msg->topic = get_mqtt_topic();
+    static char buf[128];
+    
+    memset(buf, 0, sizeof(buf));
+    sprintf(&buf[3], "{\"%s\":%d,\"%s\":%d}", "temperature", 32, "humidity", 55);
+    uint16_t len = strlen(&buf[3]);
+    buf[0] = 0x03;
+    buf[1] = len >> 8;
+    buf[2] = len & 0xFF;
+	pub_msg->msg = buf;
+	pub_msg->msg_len = len + 3;
+
+	pub_msg->topic = "$dp";
 	pub_msg->topic_len = strlen(client_ctx.pub_msg.topic);
-	/* Packet Identifier, always use different values */
+	pub_msg->qos = qos;
 	pub_msg->pkt_id = sys_rand32_get();
 }
 
@@ -309,8 +288,8 @@ static void mqtt_demo(void)
 	client_ctx.mqtt_ctx.net_init_timeout = APP_NET_INIT_TIMEOUT;
 	client_ctx.mqtt_ctx.net_timeout = APP_TX_RX_TIMEOUT;
 
-	client_ctx.mqtt_ctx.peer_addr_str = SERVER_ADDR;
-	client_ctx.mqtt_ctx.peer_port = SERVER_PORT;
+	client_ctx.mqtt_ctx.peer_addr_str = BROKER_ADDR;
+	client_ctx.mqtt_ctx.peer_port = BROKER_PORT;
 
 #if defined(CONFIG_MQTT_LIB_TLS)
 	/** TLS setup */
@@ -337,6 +316,10 @@ static void mqtt_demo(void)
 	client_ctx.connect_msg.client_id = MQTT_CLIENTID;
 	client_ctx.connect_msg.client_id_len = strlen(MQTT_CLIENTID);
 	client_ctx.connect_msg.clean_session = 1;
+    client_ctx.connect_msg.user_name = MQTT_USERNAME;
+    client_ctx.connect_msg.user_name_len = strlen(MQTT_USERNAME);
+    client_ctx.connect_msg.password = MQTT_PASSWORD;
+    client_ctx.connect_msg.password_len = strlen(MQTT_PASSWORD);
 
 	client_ctx.connect_data = "CONNECTED";
 	client_ctx.disconnect_data = "DISCONNECTED";
@@ -380,20 +363,10 @@ connected:
 		k_sleep(APP_SLEEP_MSECS);
 		PRINT_RESULT("mqtt_tx_pingreq", rc);
 
-		prepare_mqtt_publish_msg(&client_ctx.pub_msg, MQTT_QoS0);
+        prepare_mqtt_publish_msg(&client_ctx.pub_msg, MQTT_QoS0);
 		rc = mqtt_tx_publish(&client_ctx.mqtt_ctx, &client_ctx.pub_msg);
 		k_sleep(APP_SLEEP_MSECS);
-		PRINT_RESULT("mqtt_tx_publish", rc);
-
-		prepare_mqtt_publish_msg(&client_ctx.pub_msg, MQTT_QoS1);
-		rc = mqtt_tx_publish(&client_ctx.mqtt_ctx, &client_ctx.pub_msg);
-		k_sleep(APP_SLEEP_MSECS);
-		PRINT_RESULT("mqtt_tx_publish", rc);
-
-		prepare_mqtt_publish_msg(&client_ctx.pub_msg, MQTT_QoS2);
-		rc = mqtt_tx_publish(&client_ctx.mqtt_ctx, &client_ctx.pub_msg);
-		k_sleep(APP_SLEEP_MSECS);
-		PRINT_RESULT("mqtt_tx_publish", rc);
+		PRINT_RESULT("mqtt_tx_publish", rc);      
 	}
 
 	rc = mqtt_tx_disconnect(&client_ctx.mqtt_ctx);
