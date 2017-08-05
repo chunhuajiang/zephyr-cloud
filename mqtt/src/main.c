@@ -1,13 +1,10 @@
-/*
- * Copyright (c) 2017 Intel Corporation
- *
- * SPDX-License-Identifier: Apache-2.0
- */
-
 #include <zephyr.h>
 #include <net/mqtt.h>
 
 #include <net/net_context.h>
+#include <net/net_if.h>
+#include <net/net_core.h>
+#include <net/net_mgmt.h>
 
 #include <misc/printk.h>
 #include <string.h>
@@ -63,6 +60,9 @@ struct mqtt_client_ctx {
 
 /* The mqtt client struct */
 static struct mqtt_client_ctx client_ctx;
+
+static struct net_mgmt_event_callback mgmt_cb;
+static struct k_sem got_ip_sem;
 
 /* This routine sets some basic properties for the network context variable */
 static int network_setup(void);
@@ -293,7 +293,7 @@ static int try_to_connect(struct mqtt_client_ctx *client_ctx)
 	return -EINVAL;
 }
 
-static void publisher(void)
+static void mqtt_demo(void)
 {
 	int i, rc;
 
@@ -354,6 +354,8 @@ static void publisher(void)
 		return;
 	}
 
+    k_sem_take(&got_ip_sem, K_FOREVER);
+    
 	for (i = 0; i < CONN_TRIES; i++) {
 		rc = mqtt_connect(&client_ctx.mqtt_ctx);
 		PRINT_RESULT("mqtt_connect", rc);
@@ -461,7 +463,62 @@ static int network_setup(void)
 	return 0;
 }
 
+static void dhcp_handler(struct net_mgmt_event_callback *cb,
+		    u32_t mgmt_event,
+		    struct net_if *iface)
+{
+	int i = 0;
+
+	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
+		return;
+	}
+
+	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+		char buf[NET_IPV4_ADDR_LEN];
+
+		if (iface->ipv4.unicast[i].addr_type != NET_ADDR_DHCP) {
+			continue;
+		}
+
+		printk("Got ip address: %s\n",
+			 net_addr_ntop(AF_INET,
+				     &iface->ipv4.unicast[i].address.in_addr,
+				     buf, sizeof(buf)));
+		printk("Lease time: %u seconds\n", iface->dhcpv4.lease_time);
+		printk("Subnet: %s\n",
+			 net_addr_ntop(AF_INET, &iface->ipv4.netmask,
+				       buf, sizeof(buf)));
+		printk("Router: %s\n",
+			 net_addr_ntop(AF_INET, &iface->ipv4.gw,
+				       buf, sizeof(buf)));        
+
+        k_sem_give(&got_ip_sem);
+        
+        break;
+	}
+}
+
+void do_dhcpv4(void)
+{
+    struct net_if *iface;
+
+	printk("Run dhcpv4 client\n");
+
+    k_sem_init(&got_ip_sem, 0, 1);
+    
+	net_mgmt_init_event_callback(&mgmt_cb, dhcp_handler,
+				     NET_EVENT_IPV4_ADDR_ADD);
+	net_mgmt_add_event_callback(&mgmt_cb);
+
+	iface = net_if_get_default();
+
+	net_dhcpv4_start(iface);
+}      
+
 void main(void)
 {
-	publisher();
+    do_dhcpv4();
+    
+	mqtt_demo();
 }
+
