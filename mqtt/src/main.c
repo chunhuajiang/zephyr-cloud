@@ -11,6 +11,8 @@
 #include <string.h>
 #include <errno.h>
 
+#include <sensor.h>
+
 #if defined(CONFIG_NET_L2_BLUETOOTH)
 #include <bluetooth/bluetooth.h>
 #include <bluetooth/conn.h>
@@ -64,6 +66,13 @@ static struct mqtt_client_ctx client_ctx;
 
 static struct net_mgmt_event_callback mgmt_cb;
 static struct k_sem got_ip_sem;
+
+static struct sensor_value temp;
+static struct sensor_value hum;
+static struct device *am2320;
+
+uint32_t sensor_read(void);
+
 
 /* This routine sets some basic properties for the network context variable */
 static int network_setup(void);
@@ -228,7 +237,12 @@ static void prepare_mqtt_publish_msg(struct mqtt_publish_msg *pub_msg,
     static char buf[128];
     
     memset(buf, 0, sizeof(buf));
-    sprintf(&buf[3], "{\"%s\":%d,\"%s\":%d}", "temperature", 32, "humidity", 55);
+
+    sensor_read();
+    
+    sprintf(&buf[3], "{\"%s\":%d.%1d,\"%s\":%d.%1d}", 
+            "temperature", temp.val1, temp.val2, "humidity", hum.val1, hum.val2);
+    printk("%s\n", &buf[3]);
     uint16_t len = strlen(&buf[3]);
     buf[0] = 0x03;
     buf[1] = len >> 8;
@@ -358,14 +372,14 @@ connected:
 	}
 
 	i = 0;
-	while (i++ < APP_MAX_ITERATIONS) {
+	while (1) {
 		rc = mqtt_tx_pingreq(&client_ctx.mqtt_ctx);
 		k_sleep(APP_SLEEP_MSECS);
 		PRINT_RESULT("mqtt_tx_pingreq", rc);
 
         prepare_mqtt_publish_msg(&client_ctx.pub_msg, MQTT_QoS0);
 		rc = mqtt_tx_publish(&client_ctx.mqtt_ctx, &client_ctx.pub_msg);
-		k_sleep(APP_SLEEP_MSECS);
+		k_sleep(APP_SLEEP_MSECS * 10);
 		PRINT_RESULT("mqtt_tx_publish", rc);      
 	}
 
@@ -488,9 +502,48 @@ void do_dhcpv4(void)
 	net_dhcpv4_start(iface);
 }      
 
+uint32_t sensor_read(void)
+{
+    /* Clean up stored old data. */
+    memset(&temp, 0, sizeof(temp));
+    memset(&hum, 0, sizeof(hum));
+    
+    if(!am2320) {
+        return -1;
+    }
+
+    if (sensor_sample_fetch(am2320) < 0) {
+        printf("Sensor sample update error\n");
+        return -1;
+    }
+
+    if (sensor_channel_get(am2320, SENSOR_CHAN_TEMP, &temp) < 0) {
+        printf("Cannot read AM2320 temperature channel\n");
+        return -1;
+    }
+
+    if (sensor_channel_get(am2320, SENSOR_CHAN_HUMIDITY, &hum) < 0) {
+        printf("Cannot read AM2320 humidity channel\n");
+        return -1;
+    }
+
+    return 0;
+}
+
+void sensor_init()
+{
+    am2320 = device_get_binding("AM2320");
+
+    if (!am2320) {
+        printf("Could not get AM2320 device\n");
+    }
+}
+
 void main(void)
 {
     do_dhcpv4();
+
+    sensor_init();
     
 	mqtt_demo();
 }
